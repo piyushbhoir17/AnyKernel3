@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Source
+      - name: Checkout AnyKernel3 Script Base
         uses: actions/checkout@v4
 
       - name: Install Dependencies
@@ -46,41 +46,49 @@ jobs:
 
       - name: Clone Clang Toolchain
         run: |
+          # Fetching standalone modern compiler asset tree targeting newer Android environments
           git clone --depth=1 https://github.com/ZyCromerZ/Clang.git ~/clang
+
+      - name: Clone X00TD 4.19 Kernel Source
+        run: |
+          # Clones the 4.19 community kernel source tree dynamically into a working subfolder
+          git clone --depth=1 https://github.com/itsclover/kernel_asus_X00TD.git -b 14 source
 
       - name: Inject Linux Kernel Source Code Patches
         run: |
-          # 1. Resolve host tool compiler variable collisions (yylloc multiple definitions)
-          find scripts/dtc/ -type f -name "dtc-lexer.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          find scripts/dtc/ -type f -name "dtc-lexer.lex.c_shipped" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
+          # 1. Patch modern host tool compiler collision definitions (yylloc error bypass)
+          find source/scripts/dtc/ -type f -name "dtc-lexer.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} + 2>/dev/null || true
+          find source/scripts/dtc/ -type f -name "dtc-lexer.lex.c_shipped" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} + 2>/dev/null || true
           
-          # 2. Fix variable-sized type compilation structure constraints inside cgroup-defs.h for A16 trees
-          if [ -f include/linux/cgroup-defs.h ]; then
-            sed -i 's/struct cgroup cgrp;/struct cgroup \*cgrp;/g' include/linux/cgroup-defs.h
-            echo "Successfully patched include/linux/cgroup-defs.h"
+          # 2. Patch flexible array variable size allocations inside cgroup structures for Android 16 frameworks
+          if [ -f source/include/linux/cgroup-defs.h ]; then
+            sed -i -E 's/struct[[:space:]]+cgroup[[:space:]]+cgrp;/struct cgroup \*cgrp;/g' source/include/linux/cgroup-defs.h
+            echo "Successfully injected structural memory patches into include/linux/cgroup-defs.h"
           fi
 
-      - name: Build Kernel
+      - name: Build Kernel Binary
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=~/clang/bin:$PATH
           
+          # Navigate dynamically inside the downloaded source structure
+          cd source
           mkdir -p out
           
-          # Initialize target configurations
+          # Set up defconfig values mapping the SDM660/Max Pro platform rules
           make O=out asus/X00TD_defconfig
 
-          # Inject mandatory system architecture configurations for Android 16 custom ROMs
+          # Force insert essential platform parameters missing from standard 4.19 defconfigs required for an A16 system mount
           echo "CONFIG_ANDROID_BINDER_IPC=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           echo "CONFIG_BPF_SYSCALL=y" >> out/.config
           echo "CONFIG_NET_CLS_ACT=y" >> out/.config
           
-          # Validate base dependencies structural definitions
+          # Synchronize and clean layout definitions
           make O=out olddefconfig
 
-          # Compile cleanly targeting the AOSP LLVM parameters matrix
+          # Execute compilation leveraging custom architecture variables
           make -j$(nproc --all) \
             O=out \
             ARCH=arm64 \
@@ -96,37 +104,40 @@ jobs:
             STRIP=llvm-strip \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-int-conversion -fcommon"
 
-      - name: Package with AnyKernel3
+      - name: Package Package with AnyKernel3
         run: |
-          # 1. Clone osm0sis's AnyKernel3 template
+          # 1. Set up osm0sis clean runtime utility workspace
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ~/AnyKernel3
           rm -rf ~/AnyKernel3/.git ~/AnyKernel3/README.md
           
-          # 2. Configure anykernel.sh properties specifically for Asus X00TD
-          sed -i 's/kernel.string=.*/kernel.string=Custom Kernel for X00TD (Android 16)/g' ~/AnyKernel3/anykernel.sh
-          sed -i 's/do.devicecheck=1.*/do.devicecheck=1/g' ~/AnyKernel3/anykernel.sh
+          # 2. Adjust target installer configuration variables matching the phone block hardware
+          sed -i 's/kernel.string=.*/kernel.string=Custom 4.19 Kernel for X00TD (Android 16 Ready)/g' ~/AnyKernel3/anykernel.sh
+          sed -i 's/do.devicecheck=.*/do.devicecheck=1/g' ~/AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=X00TD/g' ~/AnyKernel3/anykernel.sh
           sed -i 's/device.name2=.*/device.name2=X00T/g' ~/AnyKernel3/anykernel.sh
           sed -i 's|block=.*/.*|block=/dev/block/bootdevice/by-name/boot;|g' ~/AnyKernel3/anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=0/g' ~/AnyKernel3/anykernel.sh
           
-          # 3. Copy built target binaries to the installer payload directory
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb ~/AnyKernel3/Image.gz-dtb
-          elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz ~/AnyKernel3/Image.gz
+          # 3. Handle generated binaries payloads mapping
+          if [ -f source/out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp source/out/arch/arm64/boot/Image.gz-dtb ~/AnyKernel3/Image.gz-dtb
+            echo "Successfully parsed binary Image.gz-dtb."
+          elif [ -f source/out/arch/arm64/boot/Image.gz ]; then
+            cp source/out/arch/arm64/boot/Image.gz ~/AnyKernel3/Image.gz
+            echo "Successfully parsed fallback binary Image.gz."
           fi
           
-          if [ -f out/arch/arm64/boot/dtbo.img ]; then
-            cp out/arch/arm64/boot/dtbo.img ~/AnyKernel3/dtbo.img
+          if [ -f source/out/arch/arm64/boot/dtbo.img ]; then
+            cp source/out/arch/arm64/boot/dtbo.img ~/AnyKernel3/dtbo.img
+            echo "Successfully parsed tracking dtbo.img."
           fi
           
-          # 4. Zip up everything seamlessly into the flashable asset delivery container
+          # 4. Generate recovery-flashable ZIP package output array
           cd ~/AnyKernel3
-          zip -r9 ../X00TD-A16-Kernel-Flashable.zip *
+          zip -r9 ../X00TD-A16-4.19-Kernel.zip *
 
-      - name: Upload Flashable Kernel Zip
+      - name: Upload Completed Zip Package
         uses: actions/upload-artifact@v4
         with:
           name: X00TD-A16-Kernel-Flashable
-          path: X00TD-A16-Kernel-Flashable.zip
+          path: X00TD-A16-4.19-Kernel.zip
