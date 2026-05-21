@@ -46,7 +46,6 @@ jobs:
 
       - name: Clone Clang Toolchain
         run: |
-          # Fetching standalone modern compiler asset tree targeting newer Android environments
           git clone --depth=1 https://github.com/ZyCromerZ/Clang.git ~/clang
 
       - name: Clone X00TD 4.19 Kernel Source
@@ -76,8 +75,19 @@ jobs:
           cd source
           mkdir -p out
           
-          # Set up defconfig values mapping the SDM660/Max Pro platform rules
-          make O=out asus/X00TD_defconfig
+          # AUTO-DISCOVERY: Dynamically find the correct X00TD defconfig name
+          DEFCONFIG_FILE=$(find arch/arm64/configs -type f -iname "*x00td*defconfig" | head -n 1)
+          if [ -z "$DEFCONFIG_FILE" ]; then
+            # Fallback to standard SDM660 unified defconfig if X00TD isn't explicitly named
+            DEFCONFIG_FILE=$(find arch/arm64/configs -type f -iname "*sdm660*perf_defconfig*" | head -n 1)
+          fi
+          
+          # Strip the prefix to get the relative make command parameter
+          DEFCONFIG_NAME=$(echo "$DEFCONFIG_FILE" | sed 's|arch/arm64/configs/||')
+          echo "Discovered and applying Defconfig: $DEFCONFIG_NAME"
+          
+          # Set up defconfig values mapping the platform rules
+          make O=out $DEFCONFIG_NAME
 
           # Force insert essential platform parameters missing from standard 4.19 defconfigs required for an A16 system mount
           echo "CONFIG_ANDROID_BINDER_IPC=y" >> out/.config
