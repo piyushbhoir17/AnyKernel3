@@ -46,12 +46,13 @@ jobs:
 
       - name: Clone Clang Toolchain
         run: |
+          # Fetching standalone modern compiler asset tree targeting newer Android environments
           git clone --depth=1 https://github.com/ZyCromerZ/Clang.git ~/clang
 
       - name: Clone X00TD 4.19 Kernel Source
         run: |
-          # Using a confirmed, public 4.19 unified community repository for X00TD
-          git clone --depth=1 https://github.com/ProjectElixir-Devices/kernel_asus_X00TD.git -b thirteen source
+          # Using a verified, public 4.19 kernel repository for ASUS SDM660 family (X00TD)
+          git clone --depth=1 https://github.com/AnandSuresh02/android_kernel_asus_sdm660-4.19.git -b fourteen source
 
       - name: Inject Linux Kernel Source Code Patches
         run: |
@@ -71,6 +72,7 @@ jobs:
           export SUBARCH=arm64
           export PATH=~/clang/bin:$PATH
           
+          # Navigate dynamically inside the downloaded source structure
           cd source
           mkdir -p out
           
