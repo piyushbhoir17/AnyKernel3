@@ -5,7 +5,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # THIS IS THE MAGIC LINE THAT FIXES THE APT INSTALL ERROR
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout AnyKernel3 Script Base
@@ -15,38 +16,14 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-            bc \
-            bison \
-            build-essential \
-            ccache \
-            curl \
-            flex \
-            g++-multilib \
-            gcc-multilib \
-            git \
-            gnupg \
-            gperf \
-            libncurses-dev \
-            libelf-dev \
-            liblz4-tool \
-            libssl-dev \
-            libxml2 \
-            libxml2-utils \
-            lzop \
-            rsync \
-            schedtool \
-            squashfs-tools \
-            xsltproc \
-            zip \
-            zlib1g-dev \
-            unzip \
-            device-tree-compiler \
-            cpio \
-            python3 \
-            gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi \
-            binutils-aarch64-linux-gnu \
-            binutils-arm-linux-gnueabi
+            bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git gnupg gperf \
+            libncurses-dev libelf-dev liblz4-tool libssl-dev \
+            libxml2 libxml2-utils lzop rsync schedtool \
+            squashfs-tools xsltproc zip zlib1g-dev unzip \
+            device-tree-compiler cpio python3 python-is-python3 \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
 
       - name: Clone Clang Toolchain
         run: |
@@ -54,19 +31,14 @@ jobs:
 
       - name: Clone X00TD 4.19 Kernel Source
         run: |
-          # Using a verified, public 4.19 kernel repository for ASUS SDM660 family (X00TD)
           git clone --depth=1 https://github.com/AnandSuresh02/android_kernel_asus_sdm660-4.19.git -b fourteen source
 
       - name: Inject Linux Kernel Source Code Patches
         run: |
-          # 1. Patch modern host tool compiler collision definitions (yylloc error bypass)
           find source/scripts/dtc/ -type f -name "dtc-lexer.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} + 2>/dev/null || true
           find source/scripts/dtc/ -type f -name "dtc-lexer.lex.c_shipped" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} + 2>/dev/null || true
-          
-          # 2. Patch flexible array variable size allocations inside cgroup structures for Android 16 frameworks
           if [ -f source/include/linux/cgroup-defs.h ]; then
             sed -i -E 's/struct[[:space:]]+cgroup[[:space:]]+cgrp;/struct cgroup \*cgrp;/g' source/include/linux/cgroup-defs.h
-            echo "Successfully injected structural memory patches into include/linux/cgroup-defs.h"
           fi
 
       - name: Build Kernel Binary
@@ -75,33 +47,26 @@ jobs:
           export SUBARCH=arm64
           export PATH=~/clang/bin:$PATH
           
-          # Navigate dynamically inside the downloaded source structure
           cd source
           mkdir -p out
           
-          # AUTO-DISCOVERY: Dynamically find the correct X00TD defconfig name
           DEFCONFIG_FILE=$(find arch/arm64/configs -type f -iname "*x00td*defconfig" | head -n 1)
           if [ -z "$DEFCONFIG_FILE" ]; then
             DEFCONFIG_FILE=$(find arch/arm64/configs -type f -iname "*sdm660*perf_defconfig*" | head -n 1)
           fi
           
-          # Strip the prefix to get the relative make command parameter
           DEFCONFIG_NAME=$(echo "$DEFCONFIG_FILE" | sed 's|arch/arm64/configs/||')
-          echo "Discovered and applying Defconfig: $DEFCONFIG_NAME"
+          echo "Using defconfig: $DEFCONFIG_NAME"
           
-          # Set up defconfig values mapping the platform rules
           make O=out $DEFCONFIG_NAME
 
-          # Force insert essential platform parameters missing from standard 4.19 defconfigs required for an A16 system mount
           echo "CONFIG_ANDROID_BINDER_IPC=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           echo "CONFIG_BPF_SYSCALL=y" >> out/.config
           echo "CONFIG_NET_CLS_ACT=y" >> out/.config
           
-          # Synchronize and clean layout definitions
           make O=out olddefconfig
 
-          # Execute compilation leveraging custom architecture variables
           make -j$(nproc --all) \
             O=out \
             ARCH=arm64 \
@@ -119,11 +84,9 @@ jobs:
 
       - name: Package with AnyKernel3
         run: |
-          # 1. Set up osm0sis clean runtime utility workspace
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ~/AnyKernel3
           rm -rf ~/AnyKernel3/.git ~/AnyKernel3/README.md
           
-          # 2. Adjust target installer configuration variables matching the phone block hardware
           sed -i 's/kernel.string=.*/kernel.string=Custom 4.19 Kernel for X00TD (Android 16 Ready)/g' ~/AnyKernel3/anykernel.sh
           sed -i 's/do.devicecheck=.*/do.devicecheck=1/g' ~/AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=X00TD/g' ~/AnyKernel3/anykernel.sh
@@ -131,21 +94,16 @@ jobs:
           sed -i 's|block=.*/.*|block=/dev/block/bootdevice/by-name/boot;|g' ~/AnyKernel3/anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=0/g' ~/AnyKernel3/anykernel.sh
           
-          # 3. Handle generated binaries payloads mapping
           if [ -f source/out/arch/arm64/boot/Image.gz-dtb ]; then
             cp source/out/arch/arm64/boot/Image.gz-dtb ~/AnyKernel3/Image.gz-dtb
-            echo "Successfully parsed binary Image.gz-dtb."
           elif [ -f source/out/arch/arm64/boot/Image.gz ]; then
             cp source/out/arch/arm64/boot/Image.gz ~/AnyKernel3/Image.gz
-            echo "Successfully parsed fallback binary Image.gz."
           fi
           
           if [ -f source/out/arch/arm64/boot/dtbo.img ]; then
             cp source/out/arch/arm64/boot/dtbo.img ~/AnyKernel3/dtbo.img
-            echo "Successfully parsed tracking dtbo.img."
           fi
           
-          # 4. Generate recovery-flashable ZIP package output array
           cd ~/AnyKernel3
           zip -r9 ../X00TD-A16-4.19-Kernel.zip *
 
