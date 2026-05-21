@@ -46,13 +46,12 @@ jobs:
 
       - name: Clone Clang Toolchain
         run: |
-          # Fetching standalone modern compiler asset tree targeting newer Android environments
           git clone --depth=1 https://github.com/ZyCromerZ/Clang.git ~/clang
 
       - name: Clone X00TD 4.19 Kernel Source
         run: |
-          # Clones the 4.19 community kernel source tree dynamically into a working subfolder
-          git clone --depth=1 https://github.com/itsclover/kernel_asus_X00TD.git -b 14 source
+          # Using a confirmed, public 4.19 unified community repository for X00TD
+          git clone --depth=1 https://github.com/ProjectElixir-Devices/kernel_asus_X00TD.git -b thirteen source
 
       - name: Inject Linux Kernel Source Code Patches
         run: |
@@ -72,7 +71,6 @@ jobs:
           export SUBARCH=arm64
           export PATH=~/clang/bin:$PATH
           
-          # Navigate dynamically inside the downloaded source structure
           cd source
           mkdir -p out
           
@@ -104,7 +102,7 @@ jobs:
             STRIP=llvm-strip \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-int-conversion -fcommon"
 
-      - name: Package Package with AnyKernel3
+      - name: Package with AnyKernel3
         run: |
           # 1. Set up osm0sis clean runtime utility workspace
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ~/AnyKernel3
